@@ -4,6 +4,8 @@
 # bucket.
 resource "aws_cloudwatch_event_bus" "pr_review" {
   name = "${var.project_name}-bus"
+
+  tags = local.common_tags
 }
 
 resource "aws_cloudwatch_event_rule" "pr_review_requested" {
@@ -14,6 +16,8 @@ resource "aws_cloudwatch_event_rule" "pr_review_requested" {
     source      = ["codereview.app"]
     detail-type = ["PRReviewRequested"]
   })
+
+  tags = local.common_tags
 }
 
 data "aws_iam_policy_document" "eventbridge_assume_role" {
@@ -30,6 +34,8 @@ data "aws_iam_policy_document" "eventbridge_assume_role" {
 resource "aws_iam_role" "eventbridge_start_execution" {
   name               = "${var.project_name}-eventbridge-sfn-role"
   assume_role_policy = data.aws_iam_policy_document.eventbridge_assume_role.json
+
+  tags = local.common_tags
 }
 
 # Least privilege: EventBridge can only start executions of this specific

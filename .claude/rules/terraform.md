@@ -27,7 +27,8 @@ These rules apply whenever Terraform files (`.tf`, `.tfvars`) are created or edi
 ## Ownership boundary: no Lambda provisioning in this repo
 
 - This repository never provisions `aws_lambda_function` resources, Lambda IAM roles, or Lambda source code (no `.py`/`.js`/etc. handler files). Lambda functions are owned, built and deployed entirely by the `codereview-lambda` repository.
-- This repo only references Lambda ARNs by naming convention (`arn:aws:lambda:<region>:<account_id>:function:<name>`, built via `data "aws_caller_identity"` + a `variable` per function name — see `lambda_arns.tf`). Never use `terraform_remote_state` or any other cross-repo state coupling to fetch these ARNs, and never introduce an apply-ordering dependency between the two repos.
+- This repo only reads Lambda ARNs from SSM Parameter Store, published by `codereview-lambda` after its own deploy at `/${var.project_name}/lambda/<state>/arn` (see `lambda_arns.tf`). Never use `terraform_remote_state` or any other shared-state-file coupling to fetch these ARNs.
+- `codereview-lambda` must be deployed before this repo — the SSM lookup is a real apply-ordering dependency, and that's intentional and documented (in `lambda_arns.tf` and `README.md`), not something to design around. `var.lambda_arns_override` exists solely to unblock local `plan`/`apply` before `codereview-lambda` has published its parameters — never remove the SSM lookup path in favor of a permanent override.
 - If a task seems to require adding a Lambda resource or handler code here, stop and flag it — that almost certainly belongs in `codereview-lambda` instead.
 
 ## Versioning
@@ -37,7 +38,7 @@ These rules apply whenever Terraform files (`.tf`, `.tfvars`) are created or edi
 
 ## Secrets and environment-specific values
 
-- Never hardcode sensitive values or environment-specific values (account IDs, ARNs, endpoints, tokens) directly in `.tf` files. Use `variable` blocks with sane defaults for local/LocalStack use, overridden via `.tfvars` for other environments.
+- Never hardcode sensitive values or environment-specific values (account IDs, ARNs, endpoints, tokens) directly in `.tf` files. Use `variable` blocks with sane defaults for the default environment, overridden via `.tfvars` for other environments.
 - Any `.tfvars` file that could contain real secrets or environment-specific values must never be committed — confirm it is covered by `.gitignore` (`*.tfvars`, `*.tfvars.json`) before adding new ones. Only commit an example file (`*.tfvars.example`) with placeholder values if one is needed.
 - Mark sensitive variables with `sensitive = true`.
 
@@ -54,11 +55,6 @@ These rules apply whenever Terraform files (`.tf`, `.tfvars`) are created or edi
 - Always least privilege. Never use `"*"` in an IAM policy `Action` or `Resource` field.
 - Each Lambda/component gets its own dedicated IAM role — never share a role across unrelated resources.
 - Scope `Resource` to specific ARNs (e.g. the exact Lambda ARNs a Step Functions role is allowed to invoke), not to a service-wide wildcard.
-
-## LocalStack vs. real AWS
-
-- Keep LocalStack-specific provider configuration (`endpoints {}`, fake credentials, `skip_credentials_validation`, `s3_use_path_style`, etc.) clearly isolated — e.g. all in `provider.tf` driven by variables (`var.localstack_endpoint`) — rather than scattering conditional logic or mixing real-AWS assumptions into the same block in a confusing way.
-- Don't hardcode `http://localhost:4566` inline in multiple places — reference `var.localstack_endpoint` so switching to real AWS later is a variable change, not a search-and-replace.
 
 ## for_each vs. count
 

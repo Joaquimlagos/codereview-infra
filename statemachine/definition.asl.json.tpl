@@ -1,18 +1,18 @@
 {
-  "Comment": "Esqueleto do pipeline de revisao de PR com IA (estados dummy, sem logica de negocio).",
+  "Comment": "AI PR review pipeline: routes the PR to a model, optionally retrieves RAG context, invokes the LLM, then posts the review comment.",
   "StartAt": "RouteModel",
   "States": {
     "RouteModel": {
       "Type": "Task",
       "Resource": "${route_model_arn}",
-      "ResultPath": "$.routeModel",
-      "Next": "NeedsRag"
+      "ResultPath": "$.routing",
+      "Next": "CheckNeedsContext"
     },
-    "NeedsRag": {
+    "CheckNeedsContext": {
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.routeModel.needsRag",
+          "Variable": "$.routing.needsContext",
           "BooleanEquals": true,
           "Next": "RetrieveContext"
         }
@@ -22,13 +22,13 @@
     "RetrieveContext": {
       "Type": "Task",
       "Resource": "${retrieve_context_arn}",
-      "ResultPath": "$.retrieveContext",
+      "ResultPath": "$.context",
       "Next": "InvokeLLM"
     },
     "InvokeLLM": {
       "Type": "Task",
       "Resource": "${invoke_llm_arn}",
-      "ResultPath": "$.invokeLlm",
+      "ResultPath": "$.analysis",
       "Next": "PostComment"
     },
     "PostComment": {

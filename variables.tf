@@ -5,41 +5,40 @@ variable "project_name" {
 }
 
 variable "aws_region" {
-  description = "AWS region (fake, only used to satisfy the provider when running against LocalStack)."
+  description = "AWS region used by the provider."
   type        = string
   default     = "us-east-1"
 }
 
-variable "localstack_endpoint" {
-  description = "LocalStack endpoint for all services used."
+variable "environment" {
+  description = "Deployment environment name. Used for tagging."
   type        = string
-  default     = "http://localhost:4566"
+  default     = "local"
 }
 
-# Names of the Lambda functions that implement each pipeline state. The
-# functions themselves (code, role, deploy) are provisioned and owned by the
-# `codereview-lambda` repository — this repo only needs the name to build the
-# ARN and reference it in the State Machine and IAM policies.
-variable "route_model_lambda_name" {
-  description = "Name of the Lambda function implementing the RouteModel state (owned by codereview-lambda)."
+variable "github_owner" {
+  description = "GitHub account/organization that owns codereview-app. Scopes the GitHub Actions OIDC trust policy so only that account's repo can assume the CI role."
   type        = string
-  default     = "codereview-route-model"
 }
 
-variable "retrieve_context_lambda_name" {
-  description = "Name of the Lambda function implementing the RetrieveContext state (owned by codereview-lambda)."
+variable "github_repo" {
+  description = "Name of the GitHub repository whose Actions workflow is allowed to assume the CI role via OIDC."
   type        = string
-  default     = "codereview-retrieve-context"
+  default     = "codereview-app"
 }
 
-variable "invoke_llm_lambda_name" {
-  description = "Name of the Lambda function implementing the InvokeLLM state (owned by codereview-lambda)."
-  type        = string
-  default     = "codereview-invoke-llm"
-}
-
-variable "post_comment_lambda_name" {
-  description = "Name of the Lambda function implementing the PostComment state (owned by codereview-lambda)."
-  type        = string
-  default     = "codereview-post-comment"
+# Manual overrides for the Lambda ARNs normally looked up from SSM Parameter
+# Store (see lambda_arns.tf). Keyed by state name: route_model,
+# retrieve_context, invoke_llm, post_comment. Any key present here takes
+# priority over the SSM lookup for that state.
+#
+# This exists so `terraform plan`/`apply` works even before codereview-lambda
+# exists and has published its parameters — set fake ARNs here in a local
+# .tfvars (never committed) to unblock testing this repo in isolation. Leave
+# empty (the default) once codereview-lambda is deployed and publishing real
+# parameters.
+variable "lambda_arns_override" {
+  description = "Optional manual overrides for Lambda ARNs, keyed by state name. Takes priority over the SSM Parameter Store lookup."
+  type        = map(string)
+  default     = {}
 }

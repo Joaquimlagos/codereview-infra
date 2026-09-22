@@ -3,6 +3,6 @@
     "Source": "codereview.app",
     "DetailType": "PRReviewRequested",
     "EventBusName": "codereview-bus",
-    "Detail": "{\"prNumber\": 42, \"repository\": \"org/example-repo\", \"diffBucket\": \"codereview-pr-diffs\", \"diffKey\": \"prs/42/diff.patch\", \"needsRag\": true}"
+    "Detail": "{\"prNumber\": 42, \"repository\": \"org/example-repo\", \"diffBucket\": \"codereview-pr-diffs\", \"diffKey\": \"prs/42/diff.patch\"}"
   }
 ]

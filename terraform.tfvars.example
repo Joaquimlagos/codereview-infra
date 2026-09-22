@@ -1,0 +1,3 @@
+github_owner = "your-github-username-or-org"
+github_repo  = "codereview-app"
+environment  = "dev"

@@ -12,6 +12,8 @@ data "aws_iam_policy_document" "state_machine_assume_role" {
 resource "aws_iam_role" "state_machine" {
   name               = "${var.project_name}-state-machine-role"
   assume_role_policy = data.aws_iam_policy_document.state_machine_assume_role.json
+
+  tags = local.common_tags
 }
 
 # Least privilege: the State Machine can only invoke the 4 pipeline Lambdas,
@@ -46,4 +48,6 @@ resource "aws_sfn_state_machine" "pr_review" {
     invoke_llm_arn       = local.invoke_llm_lambda_arn
     post_comment_arn     = local.post_comment_lambda_arn
   })
+
+  tags = local.common_tags
 }
