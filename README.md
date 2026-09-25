@@ -1,12 +1,18 @@
 # codereview-infra
 
+[![CI](https://github.com/Joaquimlagos/codereview-infra/actions/workflows/ci.yml/badge.svg)](https://github.com/Joaquimlagos/codereview-infra/actions/workflows/ci.yml)
+
 Infrastructure as code (EventBridge + Step Functions) for the AI PR review pipeline, deployed directly against AWS.
 
-This repository is the **glue** between the AWS services in the pipeline. It's part of a portfolio project split into 3 independent repositories:
+## Part of a 3-repo pipeline
 
-- **`codereview-app`** — GitHub Actions that fires the PR event.
-- **`codereview-infra`** (this repo) — EventBridge, Step Functions and IAM.
-- **`codereview-lambda`** — the Lambda functions themselves: code, IAM roles, and deploy (harness, RAG, routing to the LLM via 9router, calling Gemini, posting the comment back to the PR).
+This repository is the **glue** between the AWS services in the pipeline. It's one of three independent repositories that make up a portfolio project:
+
+| Repository | Role | Owns |
+| --- | --- | --- |
+| [`codereview-app`](https://github.com/Joaquimlagos/codereview-app) | Sample Spring Boot app whose GitHub Actions workflows compute each PR's diff, upload it to S3, publish the `PRReviewRequested` event, and rebuild the RAG index. | The workflows (`pr-checks.yml`, `index-codebase.yml`) |
+| [`codereview-infra`](https://github.com/Joaquimlagos/codereview-infra) (this repo) | The AWS glue between the two. | EventBridge bus and rule, Step Functions state machine, artifacts bucket, Secrets Manager secrets, the GitHub OIDC role, Terraform remote state |
+| [`codereview-lambda`](https://github.com/Joaquimlagos/codereview-lambda) | The Lambda functions that classify each PR's complexity (Jev decision engine), retrieve RAG context, generate the review by calling Groq and Gemini directly with model fallback, and post it back to the PR. | The four Lambdas, their IAM roles and CloudWatch log groups |
 
 **Ownership boundary**: this repo never provisions Lambda functions. It only reads their ARNs from SSM Parameter Store (see [`lambda_arns.tf`](lambda_arns.tf) and "Contract with `codereview-lambda`" below) — the functions themselves are created and deployed entirely by `codereview-lambda`. This repo's only responsibility is standing up the AWS glue: EventBridge, Step Functions, S3, and the IAM wiring between them. There is no business logic, RAG, or LLM call in this repository.
 
@@ -27,9 +33,9 @@ The reverse also exists: this repo owns four Secrets Manager secrets and the sha
 
 | Resource | SSM parameter | Consumed by |
 | --- | --- | --- |
-| Secret `codereview/typesafe-api-key` | `/codereview/secrets/typesafe-api-key-arn` | RouteModel Lambda |
-| Secret `codereview/gemini-api-key` | `/codereview/secrets/gemini-api-key-arn` | InvokeLLM Lambda |
-| Secret `codereview/groq-api-key` | `/codereview/secrets/groq-api-key-arn` | InvokeLLM Lambda (fallback LLM provider) |
+| Secret `codereview/typesafe-api-key` | `/codereview/secrets/typesafe-api-key-arn` | RouteModel Lambda (Jev / TypeSafe decision engine) |
+| Secret `codereview/gemini-api-key` | `/codereview/secrets/gemini-api-key-arn` | InvokeLLM Lambda (Gemini) |
+| Secret `codereview/groq-api-key` | `/codereview/secrets/groq-api-key-arn` | InvokeLLM Lambda (Groq, second provider for fallback) |
 | Secret `codereview/github-app-private-key` | `/codereview/secrets/github-app-private-key-arn` | PostComment Lambda |
 | S3 bucket `codereview-artifacts` (name, not ARN) | `/codereview/s3/artifacts-bucket-name` | Lambdas/workflows that read/write diffs or the RAG index |
 
@@ -100,16 +106,7 @@ A condition written against the name-only format (`repo:<owner>/<repo>:*`) never
 
 ### Setting the variables
 
-Set these in `terraform.tfvars` (gitignored; see [`terraform.tfvars.example`](terraform.tfvars.example)):
-
-| Variable | Default | Value |
-| --- | --- | --- |
-| `github_owner` | none | GitHub account/org name |
-| `github_repo` | `codereview-app` | Repository name |
-| `github_owner_id` | none | Numeric ID of the owner account |
-| `github_repo_id` | none | Numeric ID of the repository |
-
-Both IDs are digits only (the variables reject anything else). Two ways to get them:
+The four GitHub variables (`github_owner`, `github_repo`, `github_owner_id`, `github_repo_id`) are listed in "Configuration" above. Both IDs are digits only (the variables reject anything else). Two ways to get them:
 
 - **GitHub API** (no auth needed for public data):
   ```bash
@@ -140,25 +137,40 @@ steps:
 
 ## Architecture
 
+What each repo provisions, and how the pieces connect:
+
 ```
-GitHub Actions (codereview-app)
-        │  put-events (metadata + S3 key)
-        ▼
-   EventBridge (rule "PRReviewRequested")
-        ▼
-   Step Functions
-        │
-   ┌────┴────────────────────────────────────┐
-   │ RouteModel                               │  Lambda (codereview-lambda)
-   │   ▼                                       │
-   │ Choice: needs RAG?                       │
-   │   ├── yes → RetrieveContext ───────────┐ │
-   │   └── no  ──────────────────────────────┤ │
-   │                                          ▼ │
-   │                                    InvokeLLM
-   │                                          ▼
-   │                                    PostComment
-   └───────────────────────────────────────────┘
+      codereview-app (GitHub Actions, assumes the CI role via OIDC)
+              │ s3:PutObject                 │ events:PutEvents
+              ▼                              ▼
+┌─ provisioned by this repo ────────────────────────────────────────────────────┐
+│                                                                               │
+│  S3 codereview-artifacts              EventBridge bus codereview-bus          │
+│    prs/    PR diffs (30-day expiry)     rule: PRReviewRequested               │
+│    index/  RAG embeddings index                    │                          │
+│    terraform-state/                                ▼                          │
+│                                       Step Functions codereview-pr-review     │
+│                                         RouteModel                            │
+│                                           ▼                                   │
+│                                         CheckNeedsContext                     │
+│                                           ▼                                   │
+│                                         [RetrieveContext]  (only if needed)   │
+│                                           ▼                                   │
+│                                         InvokeLLM  (retries transient errors) │
+│                                           ▼                                   │
+│                                         PostComment                           │
+│                                                                               │
+│  IAM: GitHub OIDC provider + CI role · Step Functions role · EventBridge role │
+│                                                                               │
+│  Secrets Manager (created empty; ARNs published to SSM)                       │
+│    typesafe-api-key · gemini-api-key · groq-api-key · github-app-private-key  │
+└────────────────────────────┬────────────────────────────────▲─────────────────┘
+                             │ each Task invokes its Lambda   │ secrets read
+                             ▼ (ARN read from SSM)            │ at runtime
+┌─ provisioned by codereview-lambda ──────────────────────────┴─────────────────┐
+│  route-model · retrieve-context · invoke-llm · post-comment  (one per state)  │
+│    └─ one CloudWatch log group each: /aws/lambda/codereview-<function>        │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Claim check + RAG index via S3**: the `<project_name>-artifacts` bucket holds the full PR diff (`prs/` prefix) and the RAG embeddings index (`index/` prefix) — see "Bucket layout" above. EventBridge and Step Functions only carry lightweight metadata (PR number, repository) and the object's **key** in S3 — never the full diff payload.
@@ -166,6 +178,7 @@ GitHub Actions (codereview-app)
 - **State Machine (ASL)**: defined in [`statemachine/definition.asl.json.tpl`](statemachine/definition.asl.json.tpl) and provisioned via `templatefile()` in [`stepfunctions.tf`](stepfunctions.tf).
 - **Cross-repo reference without state coupling**: [`lambda_arns.tf`](lambda_arns.tf) reads each Lambda ARN from SSM Parameter Store, published there by `codereview-lambda` after its own deploy — see "Contract with `codereview-lambda`" above.
 - **Secrets**: [`secrets.tf`](secrets.tf) creates four empty Secrets Manager secrets (`typesafe-api-key`, `gemini-api-key`, `groq-api-key`, `github-app-private-key`) and publishes their ARNs to SSM the same way, so `codereview-lambda` never hardcodes a secret ARN. No read permission is granted here — see the table above.
+- **Logging**: this repo provisions no CloudWatch log groups. Each Lambda's group is managed by `codereview-lambda`, and the state machine has execution logging turned off (it has no `logging_configuration`).
 
 ## Repository structure
 
@@ -190,7 +203,7 @@ GitHub Actions (codereview-app)
 
 ## Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs a single job, `terraform`, on every push and every pull request (any branch):
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs a single job, `terraform`, on pushes to `main` and on every pull request (so a branch with an open pull request is checked once, not twice):
 
 1. `terraform fmt -check -recursive`
 2. `terraform init -backend=false -input=false`
@@ -202,9 +215,35 @@ It is deliberately static, with no access to AWS:
 - **No `plan` or `apply`.** Those need real AWS credentials (and read SSM parameters published by `codereview-lambda`), so they stay manual — see "Running against AWS".
 - **It doesn't need `terraform.tfvars`**, which is gitignored: `validate` doesn't require values for variables, so the required ones without a default (`github_owner`, `github_owner_id`, `github_repo_id`) don't break it.
 
-Terraform is pinned to an exact version (`1.15.8`), which must satisfy `required_version` in [`versions.tf`](versions.tf); bump it in the workflow when you upgrade locally. A pull request from a branch of this same repository triggers the job twice (once for the push, once for the pull request).
+Terraform is pinned to an exact version (`1.15.8`), which must satisfy `required_version` in [`versions.tf`](versions.tf); bump it in the workflow when you upgrade locally. To run the same checks yourself, see "Static checks" below.
 
-To reproduce the checks locally without touching AWS or the remote state:
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.10 (the S3 backend uses `use_lockfile`)
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), configured with a real AWS profile that has permission to create the resources in this repo (`aws configure`, or an SSO profile — see `AWS_PROFILE`)
+
+## Configuration
+
+Values go in `terraform.tfvars`, which is gitignored. Copy [`terraform.tfvars.example`](terraform.tfvars.example) and fill it in; never commit real values.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `github_owner` | yes | — | GitHub account or organization that owns `codereview-app` |
+| `github_owner_id` | yes | — | Numeric ID of that account (digits only) |
+| `github_repo_id` | yes | — | Numeric ID of the `codereview-app` repository (digits only) |
+| `github_repo` | no | `codereview-app` | Repository allowed to assume the CI role |
+| `project_name` | no | `codereview` | Prefix for every resource name |
+| `aws_region` | no | `us-east-1` | Region used by the provider |
+| `environment` | no | `local` | Environment name, used in resource tags (the example file sets `dev`) |
+| `lambda_arns_override` | no | `{}` | Map keyed by state (`route_model`, `retrieve_context`, `invoke_llm`, `post_comment`) that bypasses the SSM lookup for that Lambda's ARN — see "Testing before `codereview-lambda` exists" |
+
+See "Setting the variables" below for how to look up the two numeric IDs.
+
+The GitHub App that posts the reviews is configured in `codereview-lambda`, not here: its `github_app_id` and `github_app_installation_id` are variables of that repo's own Terraform. This repo only owns the Secrets Manager secret that holds the App's private key (`codereview/github-app-private-key`).
+
+## Static checks
+
+These need no AWS access and don't touch the remote state, and they are exactly what CI runs:
 
 ```bash
 terraform fmt -check -recursive
@@ -213,11 +252,6 @@ terraform validate
 ```
 
 `init -backend=false` leaves a backend you already initialized untouched, but in a fresh clone it configures none, so run a normal `terraform init` before `plan`, `apply` or any `state` command.
-
-## Prerequisites
-
-- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.10 (the S3 backend uses `use_lockfile`)
-- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), configured with a real AWS profile that has permission to create the resources in this repo (`aws configure`, or an SSO profile — see `AWS_PROFILE`)
 
 ## Running against AWS
 
@@ -230,14 +264,15 @@ export AWS_DEFAULT_REGION=us-east-1
 
 The provider ([`provider.tf`](provider.tf)) reads credentials from the environment — no keys are ever hardcoded in this repo.
 
-### 2. Apply the infra with Terraform
+### 2. Plan and apply with Terraform
 
 ```bash
 terraform init
+terraform plan
 terraform apply
 ```
 
-At the end, note the outputs (especially the State Machine ARN):
+Always read the `plan` before applying. On a brand-new account the first apply can't be a plain `terraform apply` — follow "Bootstrap order" above. At the end, note the outputs (especially the State Machine ARN):
 
 ```bash
 terraform output
