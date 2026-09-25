@@ -184,8 +184,35 @@ GitHub Actions (codereview-app)
 ├── terraform.tfvars.example # Template for the gitignored terraform.tfvars
 ├── statemachine/
 │   └── definition.asl.json.tpl
-└── scripts/test-event.json  # Manual test event for EventBridge
+├── scripts/test-event.json  # Manual test event for EventBridge
+└── .github/workflows/ci.yml # Static Terraform checks (no AWS access)
 ```
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs a single job, `terraform`, on every push and every pull request (any branch):
+
+1. `terraform fmt -check -recursive`
+2. `terraform init -backend=false -input=false`
+3. `terraform validate`
+
+It is deliberately static, with no access to AWS:
+- **No credentials, no secrets**, and the workflow's only permission is `contents: read`.
+- **`-backend=false`** means `init` never reads or writes the Terraform state in S3.
+- **No `plan` or `apply`.** Those need real AWS credentials (and read SSM parameters published by `codereview-lambda`), so they stay manual — see "Running against AWS".
+- **It doesn't need `terraform.tfvars`**, which is gitignored: `validate` doesn't require values for variables, so the required ones without a default (`github_owner`, `github_owner_id`, `github_repo_id`) don't break it.
+
+Terraform is pinned to an exact version (`1.15.8`), which must satisfy `required_version` in [`versions.tf`](versions.tf); bump it in the workflow when you upgrade locally. A pull request from a branch of this same repository triggers the job twice (once for the push, once for the pull request).
+
+To reproduce the checks locally without touching AWS or the remote state:
+
+```bash
+terraform fmt -check -recursive
+terraform init -backend=false
+terraform validate
+```
+
+`init -backend=false` leaves a backend you already initialized untouched, but in a fresh clone it configures none, so run a normal `terraform init` before `plan`, `apply` or any `state` command.
 
 ## Prerequisites
 
