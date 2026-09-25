@@ -47,24 +47,28 @@ data "aws_ssm_parameter" "post_comment_lambda_arn" {
   name  = local.lambda_ssm_paths.post_comment
 }
 
+# The provider marks every aws_ssm_parameter value sensitive, which would
+# hide the whole State Machine definition in plans. These are ARNs, not
+# secrets, so the mark is dropped on the SSM branch (the override branch is
+# never sensitive to begin with).
 locals {
   route_model_lambda_arn = try(
     var.lambda_arns_override["route_model"],
-    data.aws_ssm_parameter.route_model_lambda_arn[0].value,
+    nonsensitive(data.aws_ssm_parameter.route_model_lambda_arn[0].value),
   )
 
   retrieve_context_lambda_arn = try(
     var.lambda_arns_override["retrieve_context"],
-    data.aws_ssm_parameter.retrieve_context_lambda_arn[0].value,
+    nonsensitive(data.aws_ssm_parameter.retrieve_context_lambda_arn[0].value),
   )
 
   invoke_llm_lambda_arn = try(
     var.lambda_arns_override["invoke_llm"],
-    data.aws_ssm_parameter.invoke_llm_lambda_arn[0].value,
+    nonsensitive(data.aws_ssm_parameter.invoke_llm_lambda_arn[0].value),
   )
 
   post_comment_lambda_arn = try(
     var.lambda_arns_override["post_comment"],
-    data.aws_ssm_parameter.post_comment_lambda_arn[0].value,
+    nonsensitive(data.aws_ssm_parameter.post_comment_lambda_arn[0].value),
   )
 }

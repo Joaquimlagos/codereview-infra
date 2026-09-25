@@ -27,6 +27,30 @@ variable "github_repo" {
   default     = "codereview-app"
 }
 
+# Immutable numeric IDs of the owner account and the repository. GitHub
+# includes them in the OIDC `sub` claim (repo:<owner>@<owner_id>/<repo>@<repo_id>:...),
+# so pinning them means a renamed repo, or one recreated under the same name
+# by another account, can't assume the role.
+variable "github_owner_id" {
+  description = "Immutable numeric ID of the GitHub account that owns codereview-app (GET /users/{owner} -> id)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_owner_id))
+    error_message = "github_owner_id must be the numeric GitHub account ID, digits only."
+  }
+}
+
+variable "github_repo_id" {
+  description = "Immutable numeric ID of the codereview-app repository (GET /repos/{owner}/{repo} -> id)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repo_id))
+    error_message = "github_repo_id must be the numeric GitHub repository ID, digits only."
+  }
+}
+
 # Manual overrides for the Lambda ARNs normally looked up from SSM Parameter
 # Store (see lambda_arns.tf). Keyed by state name: route_model,
 # retrieve_context, invoke_llm, post_comment. Any key present here takes

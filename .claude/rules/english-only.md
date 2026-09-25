@@ -11,7 +11,7 @@ This applies to:
 - Comments in code (`.tf`, `.py`, or any other language).
 - Documentation: `README.md`, `CLAUDE.md`, and any other doc files.
 - Commit messages and pull request descriptions.
-- Any text embedded in configuration (descriptions, tags, log messages emitted by stub Lambdas, etc.).
+- Any text embedded in configuration (descriptions, tags, etc.).
 
 Conversational replies to the user can stay in whichever language the user is writing in — this rule only governs text that ends up committed to the project.
 

@@ -19,6 +19,10 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 
 # Trust policy: only the specific codereview-app repo (any branch/event, for
 # now) can assume this role, and only via the sts.amazonaws.com audience.
+# GitHub sends `sub` with immutable IDs, e.g.
+#   repo:my-org@12345678/codereview-app@987654321:ref:refs/heads/develop
+# so owner and repo are matched by exact name AND numeric ID — no wildcard
+# on either. The trailing :* only covers the ref/event part of the claim.
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -37,7 +41,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.github_repo}:*"]
+      values   = ["repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}:*"]
     }
   }
 }
@@ -49,10 +53,12 @@ resource "aws_iam_role" "github_actions_pr_review" {
   tags = local.common_tags
 }
 
-# Least privilege: this role only uploads the PR diff and fires the review
-# event — nothing else. events:PutEvents is scoped to this repo's custom
-# event bus (never the default bus, never a wildcard); s3:PutObject is
-# scoped to the diffs bucket's objects.
+# Least privilege: this role only uploads PR diffs, fires the review event,
+# and (via the codereview-app indexing workflow) writes the RAG index —
+# nothing else. events:PutEvents is scoped to this repo's custom event bus
+# (never the default bus, never a wildcard). s3:PutObject is scoped to the
+# prs/ and index/ prefixes only — never the whole bucket, which also holds
+# this repo's Terraform state under terraform-state/.
 data "aws_iam_policy_document" "github_actions_pr_review" {
   statement {
     actions   = ["events:PutEvents"]
@@ -60,8 +66,11 @@ data "aws_iam_policy_document" "github_actions_pr_review" {
   }
 
   statement {
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.pr_diffs.arn}/*"]
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.artifacts.arn}/prs/*",
+      "${aws_s3_bucket.artifacts.arn}/index/*",
+    ]
   }
 }
 

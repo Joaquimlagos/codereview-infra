@@ -29,6 +29,14 @@
       "Type": "Task",
       "Resource": "${invoke_llm_arn}",
       "ResultPath": "$.analysis",
+      "Retry": [
+        {
+          "ErrorEquals": ["LlmTransientError"],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2,
+          "MaxAttempts": 1
+        }
+      ],
       "Next": "PostComment"
     },
     "PostComment": {

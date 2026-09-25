@@ -1,6 +1,6 @@
-output "pr_diffs_bucket" {
-  description = "Name of the S3 bucket used as claim check for PR diffs."
-  value       = aws_s3_bucket.pr_diffs.bucket
+output "artifacts_bucket" {
+  description = "Name of the shared S3 bucket for PR diffs (prs/ prefix, claim check) and the RAG embeddings index (index/ prefix)."
+  value       = aws_s3_bucket.artifacts.bucket
 }
 
 output "event_bus_name" {
@@ -19,7 +19,7 @@ output "state_machine_arn" {
 }
 
 output "secret_arns" {
-  description = "ARNs of the Secrets Manager secrets, keyed by secret key (typesafe_api_key, gemini_api_key, github_token). Use with `aws secretsmanager put-secret-value` to set real values after deploy."
+  description = "ARNs of the Secrets Manager secrets, keyed by secret key (typesafe_api_key, gemini_api_key, groq_api_key, github_app_private_key). Use with `aws secretsmanager put-secret-value` to set real values after deploy."
   value       = { for key, secret in aws_secretsmanager_secret.this : key => secret.arn }
 }
 
@@ -28,9 +28,9 @@ output "secret_arn_ssm_parameters" {
   value       = { for key, param in aws_ssm_parameter.secret_arn : key => param.name }
 }
 
-output "pr_diffs_bucket_ssm_parameter" {
-  description = "SSM parameter name where the PR diffs bucket name is published, for codereview-lambda to populate DIFF_BUCKET."
-  value       = aws_ssm_parameter.pr_diffs_bucket_name.name
+output "artifacts_bucket_ssm_parameter" {
+  description = "SSM parameter name where the artifacts bucket name is published, for codereview-lambda/codereview-app to populate their bucket-name env var."
+  value       = aws_ssm_parameter.artifacts_bucket_name.name
 }
 
 output "github_actions_pr_review_role_arn" {

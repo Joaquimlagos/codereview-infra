@@ -39,18 +39,23 @@ resource "aws_iam_role" "eventbridge_start_execution" {
 }
 
 # Least privilege: EventBridge can only start executions of this specific
-# State Machine.
-data "aws_iam_policy_document" "eventbridge_start_execution" {
-  statement {
-    actions   = ["states:StartExecution"]
-    resources = [aws_sfn_state_machine.pr_review.arn]
-  }
-}
-
+# State Machine. Built with jsonencode() directly, not a data
+# "aws_iam_policy_document", so it doesn't get deferred to "known after
+# apply" every time the State Machine (and thus its ARN) has a pending
+# change — that made every ASL edit show this policy as an unreadable diff.
 resource "aws_iam_role_policy" "eventbridge_start_execution" {
-  name   = "${var.project_name}-eventbridge-start-execution"
-  role   = aws_iam_role.eventbridge_start_execution.id
-  policy = data.aws_iam_policy_document.eventbridge_start_execution.json
+  name = "${var.project_name}-eventbridge-start-execution"
+  role = aws_iam_role.eventbridge_start_execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "states:StartExecution"
+        Resource = aws_sfn_state_machine.pr_review.arn
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_event_target" "pr_review_state_machine" {
