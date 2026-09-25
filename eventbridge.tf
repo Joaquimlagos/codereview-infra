@@ -4,6 +4,8 @@
 # bucket.
 resource "aws_cloudwatch_event_bus" "pr_review" {
   name = "${var.project_name}-bus"
+
+  tags = local.common_tags
 }
 
 resource "aws_cloudwatch_event_rule" "pr_review_requested" {
@@ -14,6 +16,8 @@ resource "aws_cloudwatch_event_rule" "pr_review_requested" {
     source      = ["codereview.app"]
     detail-type = ["PRReviewRequested"]
   })
+
+  tags = local.common_tags
 }
 
 data "aws_iam_policy_document" "eventbridge_assume_role" {
@@ -30,21 +34,28 @@ data "aws_iam_policy_document" "eventbridge_assume_role" {
 resource "aws_iam_role" "eventbridge_start_execution" {
   name               = "${var.project_name}-eventbridge-sfn-role"
   assume_role_policy = data.aws_iam_policy_document.eventbridge_assume_role.json
+
+  tags = local.common_tags
 }
 
 # Least privilege: EventBridge can only start executions of this specific
-# State Machine.
-data "aws_iam_policy_document" "eventbridge_start_execution" {
-  statement {
-    actions   = ["states:StartExecution"]
-    resources = [aws_sfn_state_machine.pr_review.arn]
-  }
-}
-
+# State Machine. Built with jsonencode() directly, not a data
+# "aws_iam_policy_document", so it doesn't get deferred to "known after
+# apply" every time the State Machine (and thus its ARN) has a pending
+# change — that made every ASL edit show this policy as an unreadable diff.
 resource "aws_iam_role_policy" "eventbridge_start_execution" {
-  name   = "${var.project_name}-eventbridge-start-execution"
-  role   = aws_iam_role.eventbridge_start_execution.id
-  policy = data.aws_iam_policy_document.eventbridge_start_execution.json
+  name = "${var.project_name}-eventbridge-start-execution"
+  role = aws_iam_role.eventbridge_start_execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "states:StartExecution"
+        Resource = aws_sfn_state_machine.pr_review.arn
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_event_target" "pr_review_state_machine" {

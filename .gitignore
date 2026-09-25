@@ -5,6 +5,4 @@ crash.log
 crash.*.log
 *.tfvars
 *.tfvars.json
-.build/
-__pycache__/
-*.pyc
+.claude/settings.local.json
