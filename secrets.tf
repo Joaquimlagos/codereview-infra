@@ -5,8 +5,8 @@
 # put-secret-value`. codereview-lambda is responsible for reading the ARN
 # from SSM and granting each secret's read permission only to the execution
 # role of the specific function that needs it (RouteModel reads
-# typesafe_api_key, InvokeLLM reads gemini_api_key and groq_api_key,
-# PostComment reads github_app_private_key).
+# typesafe_api_key, InvokeLLM reads gemini_api_key, groq_api_key and
+# cerebras_api_key, PostComment reads github_app_private_key).
 #
 # github_token (the old PAT github_app_private_key replaced) was removed
 # once the GitHub App was validated in production and the PAT revoked.
@@ -27,6 +27,10 @@ locals {
     groq_api_key = {
       name        = "${var.project_name}/groq-api-key"
       description = "Groq API key, a second LLM provider for fallback between providers in the InvokeLLM Lambda in codereview-lambda."
+    }
+    cerebras_api_key = {
+      name        = "${var.project_name}/cerebras-api-key"
+      description = "Cerebras API key, an LLM provider for fallback between providers in the InvokeLLM Lambda in codereview-lambda."
     }
   }
 }
