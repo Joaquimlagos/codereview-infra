@@ -37,6 +37,15 @@
           "MaxAttempts": 1
         }
       ],
+      "Next": "RecordStartTime"
+    },
+    "RecordStartTime": {
+      "Type": "Pass",
+      "Comment": "Adds the execution's start time under $.timing, leaving the rest of the input unchanged, so PostComment can log the time from start to posted review.",
+      "Parameters": {
+        "startTime.$": "$$.Execution.StartTime"
+      },
+      "ResultPath": "$.timing",
       "Next": "PostComment"
     },
     "PostComment": {

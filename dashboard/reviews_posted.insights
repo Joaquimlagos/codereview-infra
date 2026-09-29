@@ -1,0 +1,8 @@
+filter @message like /"event": "review_posted"/
+| parse @message /"pr": (?<pr>\d+)/
+| parse @message /"comments": (?<comments>\d+)/
+| parse @message /"fallback_422": (?<fallback_422>\w+)/
+| parse @message /"elapsed_ms": (?<elapsed_ms>\d+)/
+| display @timestamp, pr, comments, fallback_422, elapsed_ms
+| sort @timestamp desc
+| limit 50
