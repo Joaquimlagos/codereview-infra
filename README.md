@@ -6,13 +6,15 @@ Infrastructure as code (EventBridge + Step Functions) for the AI PR review pipel
 
 ## Part of a 3-repo pipeline
 
-This repository is the **glue** between the AWS services in the pipeline. It's one of three independent repositories that make up a portfolio project:
+This repository is one of three independent repositories that make up the pipeline:
 
 | Repository | Role | Owns |
 | --- | --- | --- |
-| [`codereview-app`](https://github.com/Joaquimlagos/codereview-app) | Sample Spring Boot app whose GitHub Actions workflows compute each PR's diff, upload it to S3, publish the `PRReviewRequested` event, and rebuild the RAG index. | The workflows (`pr-checks.yml`, `index-codebase.yml`) |
-| [`codereview-infra`](https://github.com/Joaquimlagos/codereview-infra) (this repo) | The AWS glue between the two. | EventBridge bus and rule, Step Functions state machine, artifacts bucket, Secrets Manager secrets, the GitHub OIDC role, Terraform remote state |
-| [`codereview-lambda`](https://github.com/Joaquimlagos/codereview-lambda) | The Lambda functions that classify each PR's complexity (Jev decision engine), retrieve RAG context, generate the review by calling Groq and Gemini directly with model fallback, and post it back to the PR. | The four Lambdas, their IAM roles and CloudWatch log groups |
+| [`codereview-app`](https://github.com/Joaquimlagos/codereview-app) | **Triggers.** Sample Spring Boot app. Its GitHub Actions compute each PR's diff, upload it to S3, publish the `PRReviewRequested` event, and build the method-level RAG index. | The workflows (`pr-checks.yml`, `index-codebase.yml`, `index-script-tests.yml`) and the index builder (`scripts/`) |
+| **[`codereview-infra`](https://github.com/Joaquimlagos/codereview-infra)** (this repo) | **Orchestrates.** The AWS glue between the other two. | EventBridge bus and rule, Step Functions state machine, artifacts bucket, the five Secrets Manager secrets, the GitHub OIDC role, Terraform remote state |
+| [`codereview-lambda`](https://github.com/Joaquimlagos/codereview-lambda) | **Executes.** Classifies each PR, retrieves method-level RAG context, generates the review with Groq/Cerebras/Gemini fallback, and posts it as inline PR comments. | The four Lambdas, their IAM roles and CloudWatch log groups, and the SSM parameters that publish their ARNs |
+
+How the review itself works (complexity tiers, model fallback, retrieval) is documented in [`codereview-lambda`'s README](https://github.com/Joaquimlagos/codereview-lambda#architecture).
 
 **Ownership boundary**: this repo never provisions Lambda functions. It only reads their ARNs from SSM Parameter Store (see [`lambda_arns.tf`](lambda_arns.tf) and "Contract with `codereview-lambda`" below) — the functions themselves are created and deployed entirely by `codereview-lambda`. This repo's only responsibility is standing up the AWS glue: EventBridge, Step Functions, S3, and the IAM wiring between them. There is no business logic, RAG, or LLM call in this repository.
 
@@ -29,17 +31,18 @@ After deploying each Lambda function, `codereview-lambda` must publish its ARN a
 
 With the default `project_name = "codereview"`, that's e.g. `/codereview/lambda/route-model/arn`. This repo reads those parameters in [`lambda_arns.tf`](lambda_arns.tf) via `data "aws_ssm_parameter"` — no `terraform_remote_state` (no shared state file between the two repos), but `terraform plan`/`apply` here will fail with a "parameter not found" error if those parameters don't exist yet. Use `var.lambda_arns_override` (see "Testing before `codereview-lambda` exists" below) to bypass this locally.
 
-The reverse also exists: this repo owns four Secrets Manager secrets and the shared artifacts bucket (see [`secrets.tf`](secrets.tf) and [`s3.tf`](s3.tf)), and publishes their identifiers to SSM for `codereview-lambda` to consume:
+The reverse also exists: this repo owns five Secrets Manager secrets and the shared artifacts bucket (see [`secrets.tf`](secrets.tf) and [`s3.tf`](s3.tf)), and publishes their identifiers to SSM for `codereview-lambda` to consume:
 
 | Resource | SSM parameter | Consumed by |
 | --- | --- | --- |
 | Secret `codereview/typesafe-api-key` | `/codereview/secrets/typesafe-api-key-arn` | RouteModel Lambda (Jev / TypeSafe decision engine) |
 | Secret `codereview/gemini-api-key` | `/codereview/secrets/gemini-api-key-arn` | InvokeLLM Lambda (Gemini) |
-| Secret `codereview/groq-api-key` | `/codereview/secrets/groq-api-key-arn` | InvokeLLM Lambda (Groq, second provider for fallback) |
+| Secret `codereview/groq-api-key` | `/codereview/secrets/groq-api-key-arn` | InvokeLLM Lambda (Groq) |
+| Secret `codereview/cerebras-api-key` | `/codereview/secrets/cerebras-api-key-arn` | InvokeLLM Lambda (Cerebras) |
 | Secret `codereview/github-app-private-key` | `/codereview/secrets/github-app-private-key-arn` | PostComment Lambda |
 | S3 bucket `codereview-artifacts` (name, not ARN) | `/codereview/s3/artifacts-bucket-name` | Lambdas/workflows that read/write diffs or the RAG index |
 
-All four secrets are created empty — this repo never sets or reads their values, and never grants any IAM permission to read them. `codereview-lambda` is responsible for reading each ARN from SSM and granting `secretsmanager:GetSecretValue` on it only to the execution role of the one function that needs it. After `terraform apply`, set the real values manually:
+All five secrets are created empty — this repo never sets or reads their values, and never grants any IAM permission to read them. `codereview-lambda` is responsible for reading each ARN from SSM and granting `secretsmanager:GetSecretValue` on it only to the execution role of the one function that needs it. After `terraform apply`, set the real values manually:
 
 ```bash
 aws secretsmanager put-secret-value \
@@ -73,10 +76,12 @@ Because this repo both *produces* SSM parameters (secrets, bucket name) that `co
      -target='aws_secretsmanager_secret.this["typesafe_api_key"]' \
      -target='aws_secretsmanager_secret.this["gemini_api_key"]' \
      -target='aws_secretsmanager_secret.this["groq_api_key"]' \
+     -target='aws_secretsmanager_secret.this["cerebras_api_key"]' \
      -target='aws_secretsmanager_secret.this["github_app_private_key"]' \
      -target='aws_ssm_parameter.secret_arn["typesafe_api_key"]' \
      -target='aws_ssm_parameter.secret_arn["gemini_api_key"]' \
      -target='aws_ssm_parameter.secret_arn["groq_api_key"]' \
+     -target='aws_ssm_parameter.secret_arn["cerebras_api_key"]' \
      -target='aws_ssm_parameter.secret_arn["github_app_private_key"]' \
      -target=aws_s3_bucket.artifacts \
      -target=aws_ssm_parameter.artifacts_bucket_name
@@ -106,7 +111,7 @@ A condition written against the name-only format (`repo:<owner>/<repo>:*`) never
 
 ### Setting the variables
 
-The four GitHub variables (`github_owner`, `github_repo`, `github_owner_id`, `github_repo_id`) are listed in "Configuration" above. Both IDs are digits only (the variables reject anything else). Two ways to get them:
+The four GitHub variables (`github_owner`, `github_repo`, `github_owner_id`, `github_repo_id`) are listed in "Configuration" below. Both IDs are digits only (the variables reject anything else). Two ways to get them:
 
 - **GitHub API** (no auth needed for public data):
   ```bash
@@ -137,18 +142,19 @@ steps:
 
 ## Architecture
 
-What each repo provisions, and how the pieces connect:
+The path of a pull request from the event to the review comment, and what each repo provisions along the way:
 
 ```
-      codereview-app (GitHub Actions, assumes the CI role via OIDC)
-              │ s3:PutObject                 │ events:PutEvents
-              ▼                              ▼
+      codereview-app (GitHub Actions on a pull request, assumes the CI role via OIDC)
+              │ s3:PutObject prs/{pr}/{sha}.diff    │ events:PutEvents PRReviewRequested
+              ▼                                     ▼
 ┌─ provisioned by this repo ────────────────────────────────────────────────────┐
 │                                                                               │
 │  S3 codereview-artifacts              EventBridge bus codereview-bus          │
 │    prs/    PR diffs (30-day expiry)     rule: PRReviewRequested               │
-│    index/  RAG embeddings index                    │                          │
-│    terraform-state/                                ▼                          │
+│    index/  RAG embeddings index           input: event detail only            │
+│    terraform-state/                                │                          │
+│                                                    ▼                          │
 │                                       Step Functions codereview-pr-review     │
 │                                         RouteModel                            │
 │                                           ▼                                   │
@@ -156,14 +162,16 @@ What each repo provisions, and how the pieces connect:
 │                                           ▼                                   │
 │                                         [RetrieveContext]  (only if needed)   │
 │                                           ▼                                   │
-│                                         InvokeLLM  (retries transient errors) │
+│                                         InvokeLLM                             │
+│                                           (LlmTransientError: 1 retry, 30 s)  │
 │                                           ▼                                   │
-│                                         PostComment                           │
+│                                         PostComment ──▶ review on the PR      │
 │                                                                               │
 │  IAM: GitHub OIDC provider + CI role · Step Functions role · EventBridge role │
 │                                                                               │
 │  Secrets Manager (created empty; ARNs published to SSM)                       │
-│    typesafe-api-key · gemini-api-key · groq-api-key · github-app-private-key  │
+│    typesafe-api-key · gemini-api-key · groq-api-key · cerebras-api-key        │
+│    github-app-private-key                                                     │
 └────────────────────────────┬────────────────────────────────▲─────────────────┘
                              │ each Task invokes its Lambda   │ secrets read
                              ▼ (ARN read from SSM)            │ at runtime
@@ -171,13 +179,19 @@ What each repo provisions, and how the pieces connect:
 │  route-model · retrieve-context · invoke-llm · post-comment  (one per state)  │
 │    └─ one CloudWatch log group each: /aws/lambda/codereview-<function>        │
 └───────────────────────────────────────────────────────────────────────────────┘
+
+Tiers  low / medium: Groq → Cerebras → Gemini    high: Cerebras → Groq → Gemini
+RAG    one query per changed file against a per-method index; top 8 methods,
+       leaving out code the diff itself changes
 ```
+
+The tier lists and the retrieval are implemented in `codereview-lambda`; its [architecture diagram](https://github.com/Joaquimlagos/codereview-lambda#architecture) shows the full flow.
 
 - **Claim check + RAG index via S3**: the `<project_name>-artifacts` bucket holds the full PR diff (`prs/` prefix) and the RAG embeddings index (`index/` prefix) — see "Bucket layout" above. EventBridge and Step Functions only carry lightweight metadata (PR number, repository) and the object's **key** in S3 — never the full diff payload.
 - **One Lambda per state**: `RouteModel`, `RetrieveContext`, `InvokeLLM` and `PostComment` are separate functions, each with its own dedicated IAM role, so scalability and concurrency can be tuned independently. They are built, deployed and owned by `codereview-lambda`; this repo only references their ARNs.
 - **State Machine (ASL)**: defined in [`statemachine/definition.asl.json.tpl`](statemachine/definition.asl.json.tpl) and provisioned via `templatefile()` in [`stepfunctions.tf`](stepfunctions.tf).
 - **Cross-repo reference without state coupling**: [`lambda_arns.tf`](lambda_arns.tf) reads each Lambda ARN from SSM Parameter Store, published there by `codereview-lambda` after its own deploy — see "Contract with `codereview-lambda`" above.
-- **Secrets**: [`secrets.tf`](secrets.tf) creates four empty Secrets Manager secrets (`typesafe-api-key`, `gemini-api-key`, `groq-api-key`, `github-app-private-key`) and publishes their ARNs to SSM the same way, so `codereview-lambda` never hardcodes a secret ARN. No read permission is granted here — see the table above.
+- **Secrets**: [`secrets.tf`](secrets.tf) creates five empty Secrets Manager secrets (`typesafe-api-key`, `gemini-api-key`, `groq-api-key`, `cerebras-api-key`, `github-app-private-key`) and publishes their ARNs to SSM the same way, so `codereview-lambda` never hardcodes a secret ARN. No read permission is granted here — see the table above.
 - **Logging**: this repo provisions no CloudWatch log groups. Each Lambda's group is managed by `codereview-lambda`, and the state machine has execution logging turned off (it has no `logging_configuration`).
 
 ## Repository structure
@@ -237,7 +251,7 @@ Values go in `terraform.tfvars`, which is gitignored. Copy [`terraform.tfvars.ex
 | `environment` | no | `local` | Environment name, used in resource tags (the example file sets `dev`) |
 | `lambda_arns_override` | no | `{}` | Map keyed by state (`route_model`, `retrieve_context`, `invoke_llm`, `post_comment`) that bypasses the SSM lookup for that Lambda's ARN — see "Testing before `codereview-lambda` exists" |
 
-See "Setting the variables" below for how to look up the two numeric IDs.
+See "Setting the variables" above for how to look up the two numeric IDs.
 
 The GitHub App that posts the reviews is configured in `codereview-lambda`, not here: its `github_app_id` and `github_app_installation_id` are variables of that repo's own Terraform. This repo only owns the Secrets Manager secret that holds the App's private key (`codereview/github-app-private-key`).
 
