@@ -1,0 +1,9 @@
+filter @message like /"event": "route_decision"/
+| parse @message /"pr": (?<pr>\d+)/
+| parse @message /"tier": "(?<tier>\w+)"/
+| parse @message /"needs_context": (?<needs_context>\w+)/
+| parse @message /"source": "(?<source>\w+)"/
+| parse @message /"jev_ms": (?<jev_ms>\d+)/
+| display @timestamp, pr, tier, needs_context, source, jev_ms
+| sort @timestamp desc
+| limit 50

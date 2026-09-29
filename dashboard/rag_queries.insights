@@ -1,0 +1,12 @@
+filter @message like /"event": "rag_query"/
+| parse @message /"pr": (?<pr>\d+)/
+| parse @message /"queries": (?<queries>\d+)/
+| parse @message /"candidates": (?<candidates>\d+)/
+| parse @message /"selected": (?<selected>\d+)/
+| parse @message /"min_selected": (?<min_selected>[\d.]+)/
+| parse @message /"mean_selected": (?<mean_selected>[\d.]+)/
+| parse @message /"max": (?<max_score>[\d.]+)/
+| parse @message /"margin_at_cut": (?<margin_at_cut>-?[\d.]+)/
+| display @timestamp, pr, queries, candidates, selected, max_score, mean_selected, min_selected, margin_at_cut
+| sort @timestamp desc
+| limit 50

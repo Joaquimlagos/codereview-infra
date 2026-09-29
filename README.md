@@ -194,6 +194,17 @@ The tier lists and the retrieval are implemented in `codereview-lambda`; its [ar
 - **Secrets**: [`secrets.tf`](secrets.tf) creates five empty Secrets Manager secrets (`typesafe-api-key`, `gemini-api-key`, `groq-api-key`, `cerebras-api-key`, `github-app-private-key`) and publishes their ARNs to SSM the same way, so `codereview-lambda` never hardcodes a secret ARN. No read permission is granted here — see the table above.
 - **Logging**: this repo provisions no CloudWatch log groups. Each Lambda's group is managed by `codereview-lambda`, and the state machine has execution logging turned off (it has no `logging_configuration`).
 
+## Dashboard
+
+[`dashboard.tf`](dashboard.tf) provisions the `codereview-pipeline` CloudWatch dashboard (`terraform output -raw dashboard_url`), which shows how fast a review runs:
+
+1. Step Functions execution time (mean and p90) and succeeded/failed executions.
+2. Each Lambda's average duration.
+3. Tables from Logs Insights, one row per event: RouteModel's Jev decision (`route_decision`), every InvokeLLM model call including fallbacks (`llm_call`), and each retrieval (`rag_query`).
+4. A short text description of the pipeline.
+
+The queries live in [`dashboard/`](dashboard) and parse the JSON log lines `codereview-lambda` writes; their fields are defined in [its "Structured logs" section](https://github.com/Joaquimlagos/codereview-lambda#structured-logs). Lambda function names come from the ARNs this repo already reads from SSM. Lambda logs are kept 7 days, so the tables only show recent reviews.
+
 ## Repository structure
 
 ```
@@ -208,6 +219,8 @@ The tier lists and the retrieval are implemented in `codereview-lambda`; its [ar
 ├── eventbridge.tf           # Event bus + rule + IAM to trigger the State Machine
 ├── stepfunctions.tf         # State Machine + IAM to invoke the Lambdas
 ├── oidc.tf                  # GitHub Actions OIDC provider + role for codereview-app's CI
+├── dashboard.tf             # CloudWatch dashboard (metrics + Logs Insights tables)
+├── dashboard/               # Logs Insights queries used by the dashboard
 ├── terraform.tfvars.example # Template for the gitignored terraform.tfvars
 ├── statemachine/
 │   └── definition.asl.json.tpl
