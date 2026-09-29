@@ -18,7 +18,7 @@ Infrastructure as code (Terraform) for the AI PR review pipeline. Portfolio proj
 ```
 GitHub Actions (codereview-app)
   → EventBridge (rule "PRReviewRequested")
-  → Step Functions: RouteModel → CheckNeedsContext (Choice) → [RetrieveContext] → InvokeLLM → PostComment
+  → Step Functions: RouteModel → CheckNeedsContext (Choice) → [RetrieveContext] → InvokeLLM → RecordStartTime (Pass, adds $.timing.startTime) → PostComment
 ```
 
 - **Claim check + RAG index + Terraform state via S3**: the `<project_name>-artifacts` bucket holds three unrelated kinds of data split by prefix, not by bucket — `prs/{pr}/{sha}.diff` (PR diff claim check, expires after 30 days), `index/develop/index.json` (RAG embeddings index, never expires), and `terraform-state/` (this repo's remote state, see [`backend.tf`](backend.tf); locked via `use_lockfile`). The bucket is versioned and has no `force_destroy`, so a `terraform destroy` can never silently delete the state it runs from. EventBridge and Step Functions only carry lightweight metadata + the diff's key in S3 — never the full payload.

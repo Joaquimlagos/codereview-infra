@@ -165,6 +165,8 @@ The path of a pull request from the event to the review comment, and what each r
 │                                         InvokeLLM                             │
 │                                           (LlmTransientError: 1 retry, 30 s)  │
 │                                           ▼                                   │
+│                                         RecordStartTime  (Pass: $.timing)     │
+│                                           ▼                                   │
 │                                         PostComment ──▶ review on the PR      │
 │                                                                               │
 │  IAM: GitHub OIDC provider + CI role · Step Functions role · EventBridge role │
@@ -200,7 +202,7 @@ The tier lists and the retrieval are implemented in `codereview-lambda`; its [ar
 
 1. Step Functions execution time (mean and p90) and succeeded/failed executions.
 2. Each Lambda's average duration.
-3. Tables from Logs Insights, one row per event: RouteModel's Jev decision (`route_decision`), every InvokeLLM model call including fallbacks (`llm_call`), and each retrieval (`rag_query`).
+3. Tables from Logs Insights, one row per event: the time from execution start to posted review (`review_posted`, right after the Step Functions graphs), RouteModel's Jev decision (`route_decision`), every InvokeLLM model call including fallbacks (`llm_call`), and each retrieval (`rag_query`).
 4. A short text description of the pipeline.
 
 The queries live in [`dashboard/`](dashboard) and parse the JSON log lines `codereview-lambda` writes; their fields are defined in [its "Structured logs" section](https://github.com/Joaquimlagos/codereview-lambda#structured-logs). Lambda function names come from the ARNs this repo already reads from SSM. Lambda logs are kept 7 days, so the tables only show recent reviews.
@@ -352,7 +354,7 @@ Grab the returned `executionArn` and inspect its history:
 aws stepfunctions get-execution-history --execution-arn <executionArn>
 ```
 
-**Acceptance criteria**: the execution should complete successfully (`ExecutionSucceeded`), going through `RouteModel` → `CheckNeedsContext` → (`RetrieveContext` or straight to) `InvokeLLM` → `PostComment`. Whether `RetrieveContext` runs depends entirely on the `needsContext` field `RouteModel` itself returns (`$.routing.needsContext`) — that's `codereview-lambda`'s own routing logic, not something this repo or the test event controls.
+**Acceptance criteria**: the execution should complete successfully (`ExecutionSucceeded`), going through `RouteModel` → `CheckNeedsContext` → (`RetrieveContext` or straight to) `InvokeLLM` → `RecordStartTime` → `PostComment`. `RecordStartTime` is a `Pass` state that adds the execution's start time under `$.timing` (the rest of the input is unchanged), so `PostComment` can log the time to the posted review. Whether `RetrieveContext` runs depends entirely on the `needsContext` field `RouteModel` itself returns (`$.routing.needsContext`) — that's `codereview-lambda`'s own routing logic, not something this repo or the test event controls.
 
 ### 6. Tear down
 

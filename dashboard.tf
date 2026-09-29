@@ -68,9 +68,22 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
         }
       },
       {
-        type   = "metric"
+        type   = "log"
         x      = 0
         y      = 6
+        width  = 24
+        height = 5
+        properties = {
+          title  = "PostComment: time from execution start to posted review"
+          region = var.aws_region
+          view   = "table"
+          query  = "SOURCE '${local.dashboard_log_group.post_comment}' | ${file("${path.module}/dashboard/reviews_posted.insights")}"
+        }
+      },
+      {
+        type   = "metric"
+        x      = 0
+        y      = 11
         width  = 24
         height = 6
         properties = {
@@ -89,7 +102,7 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
       {
         type   = "log"
         x      = 0
-        y      = 12
+        y      = 17
         width  = 24
         height = 5
         properties = {
@@ -102,7 +115,7 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
       {
         type   = "log"
         x      = 0
-        y      = 17
+        y      = 22
         width  = 24
         height = 7
         properties = {
@@ -115,7 +128,7 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
       {
         type   = "log"
         x      = 0
-        y      = 24
+        y      = 29
         width  = 24
         height = 5
         properties = {
@@ -128,7 +141,7 @@ resource "aws_cloudwatch_dashboard" "pipeline" {
       {
         type   = "text"
         x      = 0
-        y      = 29
+        y      = 34
         width  = 24
         height = 4
         properties = {

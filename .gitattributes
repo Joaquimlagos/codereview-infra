@@ -1,0 +1,7 @@
+# Files Terraform reads into resource definitions (the state machine's ASL, the dashboard's
+# queries and text) keep LF in every working copy. With CRLF, templatefile()/file() and
+# heredocs carry "\r" into what gets deployed, and a plan's result depends on the
+# machine's core.autocrlf setting.
+*.tf       text eol=lf
+*.tpl      text eol=lf
+*.insights text eol=lf
