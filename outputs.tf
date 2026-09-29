@@ -19,7 +19,7 @@ output "state_machine_arn" {
 }
 
 output "secret_arns" {
-  description = "ARNs of the Secrets Manager secrets, keyed by secret key (typesafe_api_key, gemini_api_key, groq_api_key, github_app_private_key). Use with `aws secretsmanager put-secret-value` to set real values after deploy."
+  description = "ARNs of the Secrets Manager secrets, keyed by secret key (typesafe_api_key, gemini_api_key, groq_api_key, cerebras_api_key, github_app_private_key). Use with `aws secretsmanager put-secret-value` to set real values after deploy."
   value       = { for key, secret in aws_secretsmanager_secret.this : key => secret.arn }
 }
 
