@@ -1,0 +1,15 @@
+filter @message like /"event": "llm_call"/
+| parse @message /"pr": (?<pr>\d+)/
+| parse @message /"tier": "(?<tier>\w+)"/
+| parse @message /"model": "(?<model>[^"]+)"/
+| parse @message /"attempt": (?<attempt>\d+)/
+| parse @message /"fell_back": (?<fell_back>\w+)/
+| parse @message /"outcome": "(?<outcome>\w+)"/
+| parse @message /"http_status": (?<http_status>\w+)/
+| parse @message /"llm_ms": (?<llm_ms>\d+)/
+| parse @message /"prompt_tokens": (?<prompt_tokens>\w+)/
+| parse @message /"output_tokens": (?<output_tokens>\w+)/
+| parse @message /"reasoning_tokens": (?<reasoning_tokens>\w+)/
+| display @timestamp, pr, tier, model, attempt, outcome, http_status, fell_back, llm_ms, prompt_tokens, output_tokens, reasoning_tokens
+| sort @timestamp desc
+| limit 50

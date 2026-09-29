@@ -33,6 +33,11 @@ output "artifacts_bucket_ssm_parameter" {
   value       = aws_ssm_parameter.artifacts_bucket_name.name
 }
 
+output "dashboard_url" {
+  description = "Console URL of the pipeline's CloudWatch dashboard."
+  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards/dashboard/${aws_cloudwatch_dashboard.pipeline.dashboard_name}"
+}
+
 output "github_actions_pr_review_role_arn" {
   description = "ARN of the IAM role codereview-app's GitHub Actions workflow assumes via OIDC (aws-actions/configure-aws-credentials role-to-assume)."
   value       = aws_iam_role.github_actions_pr_review.arn
